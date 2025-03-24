@@ -74,4 +74,5 @@ def kmeans(X, k, max_iters=100):
     imageio.mimsave('kmeans_animation.gif', images, duration=1)
     print("GIF-анимация создана: kmeans_animation.gif")
 
+
 kmeans(X, optimal_k)
