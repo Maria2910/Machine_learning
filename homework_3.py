@@ -7,60 +7,53 @@ from sklearn.decomposition import PCA
 from sklearn.linear_model import Lasso
 from sklearn.metrics import mean_squared_error
 
-# 1. Загрузка и предобработка данных
 
-# Загрузите ваш файл CSV.  Укажите правильный путь к файлу
 try:
-    df = pd.read_csv("train.csv")  # Замените "train.csv" на имя вашего файла
+    df = pd.read_csv("train.csv")
 except FileNotFoundError:
     print("Ошибка: Файл 'train.csv' не найден. Укажите правильный путь к файлу.")
     exit()
 
-# Избавьтесь от строк с пропущенными значениями (простой способ, но может быть улучшен)
 df = df.dropna()
 
-# Предполагаем, что 'SalePrice' - это целевая переменная
+
 TARGET = 'SalePrice'
 
-# Выделяем признаки (все, кроме целевой переменной)
+
 features = [col for col in df.columns if col != TARGET and df[col].dtype in ['int64', 'float64']]
 X = df[features]
 y = df[TARGET]
 
-# Нормализация данных (важно для Lasso и PCA)
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
 
-# Анализ корреляции
+
 correlation_matrix = df[features].corr()
 
-# Пороговое значение для корреляции.  Настройте это значение, чтобы избавиться от
-# действительно сильно коррелирующих признаков.  0.8 - это разумное начало.
+
 correlation_threshold = 0.8
 
-# Находим пары сильно коррелирующих признаков
+
 correlated_features = set()
 for i in range(len(correlation_matrix.columns)):
     for j in range(i):
         if abs(correlation_matrix.iloc[i, j]) > correlation_threshold:
             colname_i = correlation_matrix.columns[i]
             colname_j = correlation_matrix.columns[j]
-            correlated_features.add(colname_i) # Добавляем первый признак
-            correlated_features.add(colname_j) # Добавляем второй признак
+            correlated_features.add(colname_i) 
+            correlated_features.add(colname_j) 
 
 print(f"Обнаружены сильно коррелирующие признаки: {correlated_features}")
 
-# Удаляем сильно коррелирующие признаки из X
+
 X_uncorrelated = df[features].drop(columns=correlated_features, errors='ignore')
 features_uncorrelated = [col for col in X_uncorrelated.columns if col != TARGET]
 X_scaled_uncorrelated = scaler.fit_transform(X_uncorrelated)
 
-# 2. 3D график с уменьшением размерности
 
 
 pca = PCA(n_components=2) 
-X_pca = pca.fit_transform(X_scaled_uncorrelated) #Используем некоррелированные признаки
-
+X_pca = pca.fit_transform(X_scaled_uncorrelated)
 
 fig = plt.figure(figsize=(10, 8))
 ax = fig.add_subplot(projection='3d')
