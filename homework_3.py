@@ -1,63 +1,137 @@
-import pandas as pd
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
-from sklearn.decomposition import PCA
-from sklearn.linear_model import LinearRegression, Lasso
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+from sklearn.linear_model import Lasso
 from sklearn.metrics import mean_squared_error
 
+# 1. Загрузка и предобработка данных
 
-data = pd.read_csv('/Users/kechk/PycharmProjects/ml/tables/bikes_rent.csv')
+# Загрузите ваш файл CSV.  Укажите правильный путь к файлу
+try:
+    df = pd.read_csv("train.csv")  # Замените "train.csv" на имя вашего файла
+except FileNotFoundError:
+    print("Ошибка: Файл 'train.csv' не найден. Укажите правильный путь к файлу.")
+    exit()
 
+# Избавьтесь от строк с пропущенными значениями (простой способ, но может быть улучшен)
+df = df.dropna()
 
-X = data[['weathersit', 'temp', 'atemp', 'hum', 'windspeed(mph)', 'windspeed(ms)']]
-y = data['cnt']
+# Предполагаем, что 'SalePrice' - это целевая переменная
+TARGET = 'SalePrice'
 
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+# Выделяем признаки (все, кроме целевой переменной)
+features = [col for col in df.columns if col != TARGET and df[col].dtype in ['int64', 'float64']]
+X = df[features]
+y = df[TARGET]
 
-model = LinearRegression()
-model.fit(X_train, y_train)
-
-y_pred = model.predict(X_test)
-
-
-
-def predict_demand(weather, temp, atemp, hum, windspeed_mph, windspeed_ms):
-    input_data = np.array([[weather, temp, atemp, hum, windspeed_mph, windspeed_ms]])
-    return model.predict(input_data)
-
-example_prediction = predict_demand(1, 0.3, 0.3, 0.5, 10, 4.47)
-print(f'Прогнозируемое количество арендованных велосипедов: {example_prediction[0]}')
-
-
+# Нормализация данных (важно для Lasso и PCA)
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
 
-pca = PCA(n_components=2)
-X_pca = pca.fit_transform(X_scaled)
+# Анализ корреляции
+correlation_matrix = df[features].corr()
 
-X_train_pca, X_test_pca, y_train_pca, y_test_pca = train_test_split(X_pca, y, test_size=0.2, random_state=42)
+# Пороговое значение для корреляции.  Настройте это значение, чтобы избавиться от
+# действительно сильно коррелирующих признаков.  0.8 - это разумное начало.
+correlation_threshold = 0.8
 
-model_pca = LinearRegression()
-model_pca.fit(X_train_pca, y_train_pca)
+# Находим пары сильно коррелирующих признаков
+correlated_features = set()
+for i in range(len(correlation_matrix.columns)):
+    for j in range(i):
+        if abs(correlation_matrix.iloc[i, j]) > correlation_threshold:
+            colname_i = correlation_matrix.columns[i]
+            colname_j = correlation_matrix.columns[j]
+            correlated_features.add(colname_i) # Добавляем первый признак
+            correlated_features.add(colname_j) # Добавляем второй признак
 
-plt.figure(figsize=(10, 6))
-plt.scatter(X_test_pca[:, 0], y_test_pca, color='blue', label='Actual')
-plt.scatter(X_test_pca[:, 0], model_pca.predict(X_test_pca), color='red', label='Predicted')
-plt.xlabel('Principal Component 1')
-plt.ylabel('Count')
-plt.title('Prediction of Bike Rentals using PCA')
-plt.legend()
+print(f"Обнаружены сильно коррелирующие признаки: {correlated_features}")
+
+# Удаляем сильно коррелирующие признаки из X
+X_uncorrelated = df[features].drop(columns=correlated_features, errors='ignore')
+features_uncorrelated = [col for col in X_uncorrelated.columns if col != TARGET]
+X_scaled_uncorrelated = scaler.fit_transform(X_uncorrelated)
+
+# 2. 3D график с уменьшением размерности
+
+
+pca = PCA(n_components=2) 
+X_pca = pca.fit_transform(X_scaled_uncorrelated) #Используем некоррелированные признаки
+
+
+fig = plt.figure(figsize=(10, 8))
+ax = fig.add_subplot(projection='3d')
+
+
+ax.scatter(X_pca[:, 0], X_pca[:, 1], y, c=y, cmap='viridis')
+
+ax.set_xlabel('Главная компонента 1')
+ax.set_ylabel('Главная компонента 2')
+ax.set_zlabel('SalePrice')
+ax.set_title('3D график SalePrice в пространстве PCA')
 plt.show()
 
-lasso = Lasso(alpha=0.1)
-lasso.fit(X_train, y_train)
+
+X_train, X_test, y_train, y_test = train_test_split(X_scaled_uncorrelated, y, test_size=0.2, random_state=42)
 
 
-lasso_coef = pd.Series(lasso.coef_, index=X.columns)
-print("Коэффициенты Lasso:")
-print(lasso_coef)
+alphas = np.logspace(-4, 2, 20)  
 
-most_influential_feature = lasso_coef.idxmax()
-print(f'Наиболее влиятельный признак: {most_influential_feature}')
+rmse_values = []
+
+for alpha in alphas:
+    
+    lasso = Lasso(alpha=alpha)
+    lasso.fit(X_train, y_train)
+
+    
+    y_pred = lasso.predict(X_test)
+
+    
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+    rmse_values.append(rmse)
+
+    print(f"Alpha: {alpha}, RMSE: {rmse}")
+
+
+best_alpha = alphas[np.argmin(rmse_values)]
+best_rmse = min(rmse_values)
+print(f"\nЛучший Alpha: {best_alpha}, Лучший RMSE: {best_rmse}")
+
+
+plt.figure(figsize=(10, 6))
+plt.plot(alphas, rmse_values, marker='o')
+plt.xscale('log')
+plt.xlabel('Коэффициент регуляризации (alpha)')
+plt.ylabel('RMSE')
+plt.title('Зависимость RMSE от коэффициента регуляризации Lasso')
+plt.grid(True)
+plt.show()
+
+
+lasso_best = Lasso(alpha=best_alpha)
+lasso_best.fit(X_train, y_train)
+
+
+coefficients = lasso_best.coef_
+
+
+feature_importance = pd.DataFrame({'Feature': X_uncorrelated.columns, 'Coefficient': coefficients}) # Используем X_uncorrelated.columns
+
+
+feature_importance['Abs_Coefficient'] = np.abs(feature_importance['Coefficient'])
+feature_importance = feature_importance.sort_values('Abs_Coefficient', ascending=False)
+
+print("\nНаиболее важные признаки (Lasso):")
+print(feature_importance.head(10)) 
+
+
+plt.figure(figsize=(12, 8))
+plt.barh(feature_importance['Feature'].head(10), feature_importance['Abs_Coefficient'].head(10))
+plt.xlabel('Абсолютное значение коэффициента Lasso')
+plt.ylabel('Признак')
+plt.title('Важность признаков (Lasso)')
+plt.show()
